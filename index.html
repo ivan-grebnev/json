@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>JSON Beautify</title>
+    <style>
+        :root {
+            --bg: #f5f6f8;
+            --panel: #ffffff;
+            --border: #d1d5db;
+            --text: #111827;
+            --str: #b45309;
+            --num: #1d4ed8;
+            --bool: #a21caf;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0b0f17;
+                --panel: #111827;
+                --border: #263041;
+                --text: #e5e7eb;
+                --str: #fdba74;
+                --num: #93c5fd;
+                --bool: #f0abfc;
+            }
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, sans-serif;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding: 12px;
+            max-width: 1200px;
+            margin: auto;
+        }
+        @media (max-width: 800px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 300px;
+        }
+        .header {
+            padding: 8px 10px;
+            font-size: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        textarea, pre {
+            flex: 1;
+            padding: 10px;
+            border: 0;
+            outline: none;
+            resize: none;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            background: transparent;
+            color: var(--text);
+            overflow: auto;
+        }
+        textarea {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        pre {
+            white-space: pre;
+            cursor: pointer;
+        }
+        .key {
+            color: #CF8E6D;
+        }
+        .str {
+            color: #6AAB73;
+        }
+        .num {
+            color: #2AACB8;
+        }
+        .bool {
+            color: #57AAF7;
+        }
+        .ok {
+            color: #16a34a;
+        }
+        .error {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+<div class="grid">
+    <div class="panel">
+        <div class="header">Input</div>
+        <textarea id="input" placeholder='{"name":"John","age":30,"active":true}'></textarea>
+    </div>
+    <div class="panel">
+        <div class="header" id="status">Output (click/tap to copy)</div>
+        <pre id="output"></pre>
+    </div>
+</div>
+<script>
+    const input = document.getElementById("input");
+    const output = document.getElementById("output");
+    const status = document.getElementById("status");
+
+    let lastPretty = "";
+
+    function escapeHtml(s) {
+        return s
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;");
+    }
+
+    function simpleHighlight(json) {
+        let s = escapeHtml(json);
+
+        // 1) Strings
+        const saved = [];
+        s = s.replace(/"(?:\\.|[^"\\])*"/g, (m, offset, whole) => {
+            let i = offset + m.length;
+            while (i < whole.length && /\s/.test(whole[i])) i++;
+            const isKey = whole[i] === ':';
+
+            saved.push({text: m, isKey});
+            return `___STR_${saved.length - 1}___`;
+        });
+
+        // 2) Numbers
+        s = s.replace(/\b-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
+            '<span class="num">$&</span>');
+
+        // 3) Boolean / null
+        s = s.replace(/\b(true|false|null)\b/g, '<span class="bool">$1</span>');
+
+        // 4) Key / value pairs
+        s = s.replace(/___STR_(\d+)___/g, (_, idx) => {
+            const item = saved[Number(idx)];
+            return item.isKey
+                ? `<span class="key">${item.text}</span>`
+                : `<span class="str">${item.text}</span>`;
+        });
+
+        return s;
+    }
+
+    function setStatus(text, type) {
+        status.textContent = text;
+        status.classList.remove("ok", "error");
+        if (type === "ok") status.classList.add("ok");
+        if (type === "error") status.classList.add("error");
+    }
+
+    function setContent(text, error = false) {
+        output.textContent = text;
+        if (error)
+            output.classList.add("error");
+        else
+            output.classList.remove("error");
+    }
+
+    function setHtml(html) {
+        output.classList.remove("error");
+        output.innerHTML = html;
+    }
+
+    function render() {
+        const raw = input.value.trim();
+        if (!raw) {
+            setContent("")
+            setStatus("Output (click/tap to copy)")
+            lastPretty = "";
+            return;
+        }
+
+        try {
+            const obj = JSON.parse(raw);
+            const pretty = JSON.stringify(obj, null, 2);
+            lastPretty = pretty;
+
+            setHtml(simpleHighlight(pretty))
+            setStatus("OK — click/tap to copy", "ok");
+
+            if (window.innerWidth < 800) {
+                output.scrollIntoView({behavior: "smooth"});
+            }
+        } catch (e) {
+            setContent("Error JSON:\n" + e.message, true)
+            setStatus("Error", "error");
+            lastPretty = "";
+        }
+    }
+
+    input.addEventListener("input", render);
+
+    output.addEventListener("click", async () => {
+        if (!lastPretty) return;
+        try {
+            await navigator.clipboard.writeText(lastPretty);
+            setStatus("Copied ✔", "ok");
+            setTimeout(() => function () {
+                setStatus("OK — click/tap to copy", "ok");
+            }, 1200);
+        } catch {
+            setStatus("Failed to copy", "error");
+        }
+    });
+
+    render();
+</script>
+</body>
+</html>
